@@ -17,6 +17,9 @@ st.title("📈 LightGBM for Predicting Returns from Overlapping Time Slots") # C
 st.markdown("""
 This app demonstrates how a **LightGBM** model (a Gradient Boosting Machine) can predict future return counts
 based on historical patterns of *hour-long selections initiated every 5 minutes*.
+
+**Important Concept:** Every initiation opens a 60-minute selection window. The user is expected to return *within that specific hour-long window* that they selected. The model learns the relationship between when selections are initiated and when the corresponding returns happen within those active windows.
+
 We'll use simulated data to illustrate the process. LightGBM is often easier to install and faster to train than Deep Learning models for this type of data.
 """)
 
@@ -54,11 +57,17 @@ def simulate_data(n_days):
     initiation_times = df.loc[df.index.repeat(df['initiation_count'])]['timestamp'].reset_index(drop=True)
     if not initiation_times.empty:
         count = len(initiation_times)
-        base_delay = np.random.uniform(90, 180, size=count) # Base delay in mins
-        time_of_day_delay_factor = (1 + np.sin(initiation_times.dt.hour / 24 * 2 * np.pi)) * 30 # Longer delays if initiated late?
-        noise_delay = np.random.normal(0, 30, size=count) # Noise
-        delays_mins = base_delay + time_of_day_delay_factor + noise_delay
-        delays_mins = np.maximum(5, delays_mins) # Ensure returns happen after initiation
+
+        # Simulate returns happening strictly within the 60-minute selection window
+        base_delay = np.random.uniform(1, 60, size=count) # Base delay in mins
+
+        # We can add a slight skew based on time of day, but ensure it stays within 1 to 60 minutes
+        time_of_day_skew = np.sin(initiation_times.dt.hour / 24 * 2 * np.pi) * 10
+        delays_mins = base_delay + time_of_day_skew
+
+        # Clip delays to ensure they are within the 1 to 60 minute window
+        delays_mins = np.clip(delays_mins, 1, SELECTION_DURATION_MINS)
+
         return_times = initiation_times + pd.to_timedelta(delays_mins, unit='m')
         returns_df = pd.DataFrame({'initiation_time': initiation_times, 'return_time': return_times})
         progress_bar.progress(1.0) # Mark as complete
