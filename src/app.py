@@ -14,11 +14,16 @@ import time # For adding delays in simulation
 # --- Configuration ---
 st.set_page_config(layout="wide")
 st.title("📈 LightGBM for Predicting Returns from Overlapping Time Slots") # Changed title
-st.markdown("""
-This app demonstrates how a **LightGBM** model (a Gradient Boosting Machine) can predict future return counts
-based on historical patterns of *hour-long selections initiated every 5 minutes*.
 
-**Important Concept:** Every initiation opens a 60-minute selection window. The user is expected to return *within that specific hour-long window* that they selected. The model learns the relationship between when selections are initiated and when the corresponding returns happen within those active windows.
+# Add a sidebar for global parameters
+st.sidebar.header("Global Settings")
+SELECTION_DURATION_MINS = st.sidebar.slider("Selection Window Duration (Minutes)", 15, 120, 60, step=15)
+
+st.markdown(f"""
+This app demonstrates how a **LightGBM** model (a Gradient Boosting Machine) can predict future return counts
+based on historical patterns of *{SELECTION_DURATION_MINS}-minute selections initiated every 5 minutes*.
+
+**Important Concept:** Every initiation opens a {SELECTION_DURATION_MINS}-minute selection window. The user is expected to return *within that specific {SELECTION_DURATION_MINS}-minute window* that they selected. The model learns the relationship between when selections are initiated and when the corresponding returns happen within those active windows.
 
 We'll use simulated data to illustrate the process. LightGBM is often easier to install and faster to train than Deep Learning models for this type of data.
 """)
@@ -28,12 +33,11 @@ N_DAYS = 14 # Simulate N days of data
 MINS_PER_DAY = 24 * 60
 SLOT_INTERVAL_MINS = 5
 INITIATION_SLOTS_PER_DAY = MINS_PER_DAY // SLOT_INTERVAL_MINS # 288
-SELECTION_DURATION_MINS = 60
-SELECTION_DURATION_SLOTS = SELECTION_DURATION_MINS // SLOT_INTERVAL_MINS # 12
+SELECTION_DURATION_SLOTS = SELECTION_DURATION_MINS // SLOT_INTERVAL_MINS # Dynamically calculated
 
 # --- Data Simulation (Keep as before) ---
 # @st.cache_data # Cache the generated data
-def simulate_data(n_days):
+def simulate_data(n_days, selection_duration_mins):
     """Generates synthetic initiation counts and return times."""
     start_time = pd.Timestamp.now().normalize() - pd.Timedelta(days=n_days)
     timestamps = pd.date_range(start=start_time, periods=n_days * INITIATION_SLOTS_PER_DAY, freq=f'{SLOT_INTERVAL_MINS}min')
@@ -58,15 +62,15 @@ def simulate_data(n_days):
     if not initiation_times.empty:
         count = len(initiation_times)
 
-        # Simulate returns happening strictly within the 60-minute selection window
-        base_delay = np.random.uniform(1, 60, size=count) # Base delay in mins
+        # Simulate returns happening strictly within the dynamic selection window
+        base_delay = np.random.uniform(1, selection_duration_mins, size=count) # Base delay in mins
 
-        # We can add a slight skew based on time of day, but ensure it stays within 1 to 60 minutes
-        time_of_day_skew = np.sin(initiation_times.dt.hour / 24 * 2 * np.pi) * 10
+        # We can add a slight skew based on time of day, but ensure it stays within the window
+        time_of_day_skew = np.sin(initiation_times.dt.hour / 24 * 2 * np.pi) * (selection_duration_mins / 6)
         delays_mins = base_delay + time_of_day_skew
 
-        # Clip delays to ensure they are within the 1 to 60 minute window
-        delays_mins = np.clip(delays_mins, 1, SELECTION_DURATION_MINS)
+        # Clip delays to ensure they are within the 1 to selection_duration_mins window
+        delays_mins = np.clip(delays_mins, 1, selection_duration_mins)
 
         return_times = initiation_times + pd.to_timedelta(delays_mins, unit='m')
         returns_df = pd.DataFrame({'initiation_time': initiation_times, 'return_time': return_times})
@@ -80,7 +84,7 @@ def simulate_data(n_days):
 # --- End of simplified simulation ---
 
 
-df_initiations, df_returns = simulate_data(N_DAYS)
+df_initiations, df_returns = simulate_data(N_DAYS, SELECTION_DURATION_MINS)
 
 st.header("1. Simulated Data Overview")
 col1, col2 = st.columns(2)
